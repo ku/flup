@@ -1,7 +1,7 @@
 #!/bin/sh
 
-for file in $*
-do
+for file in "$@"; do 
     echo $file
-    curl "http://localhost:8080/queue/add?file="$file
+    f=`echo $file | sed 's/%/%25/g' | sed 's/ /%20/g'`
+    curl "http://localhost:58080/queue/add?file="$f
 done

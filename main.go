@@ -1,17 +1,17 @@
 package main
 
 import (
-	"flickgo"
+	"flag"
 	"fmt"
+	"github.com/ku/flickgo"
 	"html/template"
+	"io/ioutil"
+	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
-	//"flag"
-	"io/ioutil"
-	"log"
-	"net/http"
 )
 
 func startDaemon(port int, ch chan string, authFileName string) {
@@ -19,8 +19,10 @@ func startDaemon(port int, ch chan string, authFileName string) {
 
 	uploadQueue := make(chan string, 64*1024)
 
-	apikey := "*" // consumer_key
-	secret := "*" // consumer_secret
+	flag.Parse()
+
+	apikey := flag.Arg(0)
+	secret := flag.Arg(1)
 
 	httpClient := &http.Client{}
 	fl := flickgo.New(apikey, secret, httpClient)
@@ -34,7 +36,12 @@ func startDaemon(port int, ch chan string, authFileName string) {
 			"perms": "delete",
 		})
 
-		t, _ := template.New("foo").Parse(`<p><a href="{{.}}" target="_blank">open flickr to auth</a></p><a href="./done">continue</a>`)
+		t, _ := template.New("foo").Parse(`
+			<h1>Needs your authorization</h1>
+			<ol>
+				<li><a href="{{.}}" target="_blank">Open flickr to authorize the app</a>
+				<li><a href="./done">Continue to save the token after authorizing the app</a>
+		`)
 		t.Execute(w, template.HTML(res))
 
 	})
@@ -43,6 +50,23 @@ func startDaemon(port int, ch chan string, authFileName string) {
 		fmt.Println(token, user, err)
 		ioutil.WriteFile(authFileName, []byte(token), 0600)
 		ch <- token
+
+		t, _ := template.New("foo").Parse(`
+			<h1>Token saved successfully</h1>
+			<div>
+			Add files to upload with 
+			<pre><code>
+				fullpathname=` + "`echo $file | sed 's/%/%25/g' | sed 's/ /%20/g'`" + `
+				curl "http://localhost:58080/queue/add?file="$fullpathname
+			</code></pre>
+			or something like
+			<pre><code>
+			 find ` + "`pwd`" + ` -type f -print0  | xargs -0 flup/add2queue.sh     
+			</code></pre>
+			</div>
+		`)
+		t.Execute(w, nil)
+
 	})
 
 	http.HandleFunc("/queue/add", func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +121,7 @@ func startDaemon(port int, ch chan string, authFileName string) {
 		}
 	}()
 
-	fmt.Printf("starting at port %d")
+	fmt.Printf("starting at port %d\n", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 
 }
@@ -117,7 +141,7 @@ func authTokenChannel() chan string {
 	} else {
 		go func() {
 			time.Sleep(time.Millisecond * 100)
-			cmd := exec.Command("/usr/bin/open", "http://localhost:8080/auth/start")
+			cmd := exec.Command("/usr/bin/open", "http://localhost:58080/auth/start")
 			err := cmd.Run()
 			if err != nil {
 				fmt.Println(err)
@@ -129,7 +153,7 @@ func authTokenChannel() chan string {
 }
 
 func main() {
-	port := 8080
+	port := 58080
 	ch := authTokenChannel()
 
 	startDaemon(port, ch, ".key")
